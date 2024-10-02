@@ -1,52 +1,71 @@
 import requests as http
-from pprint import pprint
 from os import getenv
 from github import Github, Auth, InputFileContent
 
 
 GIST_TITLE = "♟︎ Chess.com Ratings"
-
-GH_TOKEN = getenv("GH_TOKEN")
-GIST_ID = getenv("GIST_ID")
-CHESS_USERNAME = getenv("CHESS_USERNAME")
-
-STATS_URL = f"https://api.chess.com/pub/player/{CHESS_USERNAME}/stats"
 GAME_MODES = {
     "bullet": "🚅",
-    "blitz": "⚡",
-    "rapid": "🕖",
+    "blitz": "⚡ ",
+    "rapid": "⏲️",
 }
 
-
-hub = Github(auth=Auth.Token(GH_TOKEN))
-
-
-def get_stats() -> dict[str, dict]:
-    headers = {"User-Agent": f"@{CHESS_USERNAME}"}
-    return http.get(STATS_URL, headers=headers).json()
+STATS_URL = "https://api.chess.com/pub/player/{user}/stats"
 
 
-def update_gist(content: str):
-    hub.get_gist(GIST_ID).edit(files={GIST_TITLE: InputFileContent(content)})
+def environ():
+    vars = []
+    missing = False
+    for key in ("GH_TOKEN", "GIST_ID", "CHESS_USERNAME"):
+        var = getenv(key)
+        if not var:
+            print(f"Missing required environment variable: {var}")
+            missing = True
+        else:
+            vars.append(var)
+    if missing:
+        exit(1)
+
+    return vars
 
 
-def parse(mode, rating, max_line_length):
+def get_stats(user: str) -> dict[str, dict]:
+    headers = {"User-Agent": f"@{user}"}
+    return http.get(STATS_URL.format(user=user), headers=headers).json()
+
+
+def parse_line(mode: str, rating: str, max_line_length: int):
     icon = GAME_MODES[mode]
-    separator = "." * (max_line_length - len(mode) + len(rating) + 2)
-    return f"{icon} {mode.capitalize()} {separator} {rating} 📈"
+    sep = "." * (max_line_length - len(mode) + len(rating))
+    return f"{icon} {mode.capitalize()} {sep} {rating} 📈"
+
+
+def parse(stats: dict[str, dict]):
+    return "\n".join(
+        parse_line(
+            mode,
+            str(stats[f"chess_{mode}"]["last"]["rating"]),
+            36,
+        )
+        for mode in GAME_MODES.keys()
+    )
+
+
+def update_gist(token: str, gist_id: str, content: str):
+    hub = Github(auth=Auth.Token(token))
+    hub.get_gist(gist_id).edit(files={GIST_TITLE: InputFileContent(content)})
+    hub.close()
 
 
 def main():
-    stats = get_stats()
+    token, gist_id, user = environ()
 
-    lines = [
-        parse(mode, str(stats[f"chess_{mode}"]["last"]["rating"]), 52)
-        for mode in GAME_MODES.keys()
-    ]
+    stats = get_stats(user)
+    content = parse(stats)
 
-    print("\n".join(lines))
+    print(content)
 
-    hub.close()
+    update_gist(token, gist_id, content)
 
 
 if __name__ == "__main__":
